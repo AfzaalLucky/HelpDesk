@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Trash2 } from "lucide-react"
 import { authClient } from "@/lib/auth-client"
 import { usersApi, type User } from "@/lib/api"
@@ -26,53 +26,64 @@ import {
 export default function Users() {
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
+  const queryClient = useQueryClient()
 
-  const [userList, setUserList] = useState<User[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
+  const {
+    data,
+    isPending,
+    error,
+  } = useQuery({
+    queryKey: ["users"],
+    queryFn: usersApi.list,
+  })
 
-  useEffect(() => {
-    usersApi
-      .list()
-      .then(({ users }) => setUserList(users))
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [])
+  const updateRole = useMutation({
+    mutationFn: ({ id, role }: { id: string; role: string }) =>
+      usersApi.updateRole(id, role),
+    onSuccess: ({ user }) => {
+      queryClient.setQueryData<{ users: User[] }>(["users"], (old) =>
+        old ? { users: old.users.map((u) => (u.id === user.id ? user : u)) } : old
+      )
+    },
+  })
 
-  const handleRoleChange = async (id: string, role: string) => {
-    try {
-      const { user } = await usersApi.updateRole(id, role)
-      setUserList((prev) => prev.map((u) => (u.id === id ? user : u)))
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
+  const deleteUser = useMutation({
+    mutationFn: (id: string) => usersApi.delete(id),
+    onSuccess: (_, id) => {
+      queryClient.setQueryData<{ users: User[] }>(["users"], (old) =>
+        old ? { users: old.users.filter((u) => u.id !== id) } : old
+      )
+    },
+  })
 
-  const handleDelete = async (id: string) => {
-    try {
-      await usersApi.delete(id)
-      setUserList((prev) => prev.filter((u) => u.id !== id))
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
+  const mutationError = updateRole.error?.message ?? deleteUser.error?.message
 
-  if (loading) {
+  if (isPending) {
     return (
       <div className="p-8">
-        <div className="h-6 w-24 rounded bg-muted animate-pulse mb-6" />
-        <div className="rounded-xl border border-border overflow-hidden">
+        <div className="mb-6 h-6 w-24 animate-pulse rounded bg-muted" />
+        <div className="overflow-hidden rounded-xl border border-border">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="flex gap-4 px-4 py-3 border-b border-border last:border-0">
-              <div className="h-4 w-32 rounded bg-muted animate-pulse" />
-              <div className="h-4 w-48 rounded bg-muted animate-pulse" />
-              <div className="h-4 w-16 rounded bg-muted animate-pulse" />
+            <div key={i} className="flex gap-4 border-b border-border px-4 py-3 last:border-0">
+              <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+              <div className="h-4 w-48 animate-pulse rounded bg-muted" />
+              <div className="h-4 w-16 animate-pulse rounded bg-muted" />
             </div>
           ))}
         </div>
       </div>
     )
   }
+
+  if (error) {
+    return (
+      <div className="p-8">
+        <p className="text-sm text-destructive">{error.message}</p>
+      </div>
+    )
+  }
+
+  const userList = data?.users ?? []
 
   return (
     <div className="p-8">
@@ -81,13 +92,13 @@ export default function Users() {
         <p className="mt-1 text-sm text-muted-foreground">{userList.length} total</p>
       </div>
 
-      {error && (
+      {mutationError && (
         <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
+          {mutationError}
         </div>
       )}
 
-      <div className="rounded-xl border border-border overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-border">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/50">
@@ -119,7 +130,8 @@ export default function Users() {
                   ) : (
                     <Select
                       value={user.role}
-                      onValueChange={(role) => handleRoleChange(user.id, role)}
+                      onValueChange={(role) => updateRole.mutate({ id: user.id, role })}
+                      disabled={updateRole.isPending}
                     >
                       <SelectTrigger className="h-7 w-24 text-xs">
                         <SelectValue />
@@ -142,6 +154,7 @@ export default function Users() {
                           variant="ghost"
                           size="icon-sm"
                           className="text-muted-foreground hover:text-destructive"
+                          disabled={deleteUser.isPending}
                         >
                           <Trash2 className="size-4" />
                         </Button>
@@ -157,7 +170,7 @@ export default function Users() {
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
                           <AlertDialogAction
-                            onClick={() => handleDelete(user.id)}
+                            onClick={() => deleteUser.mutate(user.id)}
                             className="bg-destructive text-white hover:bg-destructive/90"
                           >
                             Delete
