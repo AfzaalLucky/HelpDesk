@@ -1,14 +1,27 @@
-const BASE = import.meta.env.VITE_API_URL || "http://localhost:5000"
+import axios from "axios"
 
-export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-  })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw new Error((body as { error?: string }).error ?? res.statusText)
-  }
-  return res.json() as Promise<T>
+export const apiClient = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000",
+  withCredentials: true,
+  headers: { "Content-Type": "application/json" },
+})
+
+apiClient.interceptors.response.use(
+  (res) => res,
+  (err) => Promise.reject(new Error(err.response?.data?.error ?? err.message))
+)
+
+export type User = {
+  id: string
+  name: string
+  email: string
+  role: string
+  createdAt: string
+}
+
+export const usersApi = {
+  list: () => apiClient.get<{ users: User[] }>("/api/users").then((r) => r.data),
+  updateRole: (id: string, role: string) =>
+    apiClient.patch<{ user: User }>(`/api/users/${id}`, { role }).then((r) => r.data),
+  delete: (id: string) => apiClient.delete(`/api/users/${id}`),
 }

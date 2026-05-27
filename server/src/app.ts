@@ -3,6 +3,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { toNodeHandler } from 'better-auth/node';
 import { auth } from './lib/auth';
+import usersRouter from './routes/users';
 
 const app = express();
 
@@ -37,6 +38,8 @@ app.use('/api/auth/sign-up', authLimiter);
 app.all('/api/auth/*splat', toNodeHandler(auth));
 
 app.use(express.json());
+
+app.use('/api/users', usersRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
