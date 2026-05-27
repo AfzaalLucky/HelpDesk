@@ -1,9 +1,21 @@
+import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Trash2 } from "lucide-react"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { z } from "zod"
+import { Trash2, UserPlus } from "lucide-react"
 import { authClient } from "@/lib/auth-client"
-import { usersApi, type User } from "@/lib/api"
+import { usersApi, type User, type CreateUserInput } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -23,16 +35,146 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 
+const createUserSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Enter a valid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  role: z.enum(["admin", "agent"]),
+})
+
+type FormValues = z.infer<typeof createUserSchema>
+
+function AddUserDialog({ onSuccess }: { onSuccess: (user: User) => void }) {
+  const [open, setOpen] = useState(false)
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<FormValues>({
+    resolver: zodResolver(createUserSchema),
+    defaultValues: { role: "agent" },
+  })
+
+  const createUser = useMutation({
+    mutationFn: (data: CreateUserInput) => usersApi.create(data),
+    onSuccess: ({ user }) => {
+      onSuccess(user)
+      setOpen(false)
+      reset()
+    },
+  })
+
+  const onSubmit = (values: FormValues) => createUser.mutate(values)
+
+  return (
+    <>
+      <Button size="sm" onClick={() => setOpen(true)}>
+        <UserPlus className="size-4" />
+        Add user
+      </Button>
+
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add user</DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="name" className="text-sm font-medium">Name</label>
+              <Input
+                id="name"
+                placeholder="Jane Smith"
+                aria-invalid={!!errors.name}
+                {...register("name")}
+              />
+              {errors.name && (
+                <p className="text-xs text-destructive">{errors.name.message}</p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="email" className="text-sm font-medium">Email</label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="jane@example.com"
+                autoComplete="off"
+                aria-invalid={!!errors.email}
+                {...register("email")}
+              />
+              {errors.email && (
+                <p className="text-xs text-destructive">{errors.email.message}</p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="password" className="text-sm font-medium">Password</label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="Min. 8 characters"
+                autoComplete="new-password"
+                aria-invalid={!!errors.password}
+                {...register("password")}
+              />
+              {errors.password && (
+                <p className="text-xs text-destructive">{errors.password.message}</p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="role" className="text-sm font-medium">Role</label>
+              <Select
+                value={watch("role")}
+                onValueChange={(v) => setValue("role", v as "admin" | "agent", { shouldValidate: true })}
+              >
+                <SelectTrigger id="role" aria-invalid={!!errors.role}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="agent">Agent</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+              {errors.role && (
+                <p className="text-xs text-destructive">{errors.role.message}</p>
+              )}
+            </div>
+
+            {createUser.error && (
+              <p className="text-sm text-destructive">{createUser.error.message}</p>
+            )}
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => { setOpen(false); reset() }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Creating…" : "Create user"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
 export default function Users() {
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
   const queryClient = useQueryClient()
 
-  const {
-    data,
-    isPending,
-    error,
-  } = useQuery({
+  const { data, isPending, error } = useQuery({
     queryKey: ["users"],
     queryFn: usersApi.list,
   })
@@ -55,6 +197,12 @@ export default function Users() {
       )
     },
   })
+
+  const handleUserCreated = (user: User) => {
+    queryClient.setQueryData<{ users: User[] }>(["users"], (old) =>
+      old ? { users: [user, ...old.users] } : { users: [user] }
+    )
+  }
 
   const mutationError = updateRole.error?.message ?? deleteUser.error?.message
 
@@ -87,9 +235,12 @@ export default function Users() {
 
   return (
     <div className="p-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Users</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{userList.length} total</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Users</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{userList.length} total</p>
+        </div>
+        <AddUserDialog onSuccess={handleUserCreated} />
       </div>
 
       {mutationError && (
