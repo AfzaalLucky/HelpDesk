@@ -73,20 +73,50 @@ router.post('/', ...requireRole('admin'), async (req, res) => {
   res.status(201).json({ user });
 });
 
+const updateUserSchema = z.object({
+  name: z.string().min(1, 'Name is required').optional(),
+  email: z.string().email('Invalid email address').optional(),
+  role: z.enum(['admin', 'agent']).optional(),
+  password: z.string().min(8, 'Password must be at least 8 characters').optional(),
+});
+
 router.patch('/:id', ...requireRole('admin'), async (req, res) => {
   const id = String(req.params.id);
-  const { role } = req.body as { role: string };
-
-  if (!['admin', 'agent'].includes(role)) {
-    res.status(400).json({ error: 'Role must be admin or agent' });
+  const result = updateUserSchema.safeParse(req.body);
+  if (!result.success) {
+    res.status(400).json({ error: result.error.issues[0].message });
     return;
   }
 
+  const { name, email, role, password } = result.data;
+
+  if (email) {
+    const existing = await prisma.user.findFirst({ where: { email, NOT: { id } } });
+    if (existing) {
+      res.status(409).json({ error: 'A user with this email already exists' });
+      return;
+    }
+  }
+
+  const userUpdateData: Record<string, unknown> = { updatedAt: new Date() };
+  if (name !== undefined) userUpdateData.name = name;
+  if (email !== undefined) userUpdateData.email = email;
+  if (role !== undefined) userUpdateData.role = role;
+
   const user = await prisma.user.update({
     where: { id },
-    data: { role },
+    data: userUpdateData,
     select: { id: true, name: true, email: true, role: true, createdAt: true },
   });
+
+  if (password) {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await prisma.account.updateMany({
+      where: { userId: id, providerId: 'credential' },
+      data: { password: hashedPassword, updatedAt: new Date() },
+    });
+  }
+
   res.json({ user });
 });
 

@@ -3,9 +3,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Trash2, UserPlus } from "lucide-react"
+import { Pencil, Trash2, UserPlus } from "lucide-react"
 import { authClient } from "@/lib/auth-client"
-import { usersApi, type User, type CreateUserInput } from "@/lib/api"
+import { usersApi, type User, type CreateUserInput, type UpdateUserInput } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -42,7 +42,178 @@ const createUserSchema = z.object({
   role: z.enum(["admin", "agent"]),
 })
 
+const editUserSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Enter a valid email address"),
+  password: z.string().refine(
+    (val) => val === "" || val.length >= 8,
+    { message: "Password must be at least 8 characters" }
+  ),
+  role: z.enum(["admin", "agent"]),
+})
+
 type FormValues = z.infer<typeof createUserSchema>
+type EditFormValues = z.infer<typeof editUserSchema>
+
+function EditUserDialog({
+  user,
+  onSuccess,
+}: {
+  user: User
+  onSuccess: (user: User) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<EditFormValues>({
+    resolver: zodResolver(editUserSchema),
+    defaultValues: {
+      name: user.name,
+      email: user.email,
+      role: user.role as "admin" | "agent",
+      password: "",
+    },
+  })
+
+  const editUser = useMutation({
+    mutationFn: (values: EditFormValues) => {
+      const payload: UpdateUserInput = {
+        name: values.name,
+        email: values.email,
+        role: values.role,
+      }
+      if (values.password) payload.password = values.password
+      return usersApi.update(user.id, payload)
+    },
+    onSuccess: ({ user: updated }) => {
+      onSuccess(updated)
+      setOpen(false)
+    },
+  })
+
+  const handleOpenChange = (v: boolean) => {
+    setOpen(v)
+    if (v) {
+      reset({
+        name: user.name,
+        email: user.email,
+        role: user.role as "admin" | "agent",
+        password: "",
+      })
+    }
+  }
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="text-muted-foreground hover:text-foreground"
+        onClick={() => handleOpenChange(true)}
+      >
+        <Pencil className="size-4" />
+      </Button>
+
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit user</DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmit((v) => editUser.mutate(v))} className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-name" className="text-sm font-medium">Name</label>
+              <Input
+                id="edit-name"
+                placeholder="Jane Smith"
+                aria-invalid={!!errors.name}
+                {...register("name")}
+              />
+              {errors.name && (
+                <p className="text-xs text-destructive">{errors.name.message}</p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-email" className="text-sm font-medium">Email</label>
+              <Input
+                id="edit-email"
+                type="email"
+                placeholder="jane@example.com"
+                autoComplete="off"
+                aria-invalid={!!errors.email}
+                {...register("email")}
+              />
+              {errors.email && (
+                <p className="text-xs text-destructive">{errors.email.message}</p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-password" className="text-sm font-medium">
+                New password
+                <span className="ml-1 text-xs font-normal text-muted-foreground">(leave blank to keep current)</span>
+              </label>
+              <Input
+                id="edit-password"
+                type="password"
+                placeholder="Min. 8 characters"
+                autoComplete="new-password"
+                aria-invalid={!!errors.password}
+                {...register("password")}
+              />
+              {errors.password && (
+                <p className="text-xs text-destructive">{errors.password.message}</p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-role" className="text-sm font-medium">Role</label>
+              <Select
+                value={watch("role")}
+                onValueChange={(v) => setValue("role", v as "admin" | "agent", { shouldValidate: true })}
+              >
+                <SelectTrigger id="edit-role" aria-invalid={!!errors.role}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="agent">Agent</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+              {errors.role && (
+                <p className="text-xs text-destructive">{errors.role.message}</p>
+              )}
+            </div>
+
+            {editUser.error && (
+              <p className="text-sm text-destructive">{editUser.error.message}</p>
+            )}
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Saving…" : "Save changes"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
 
 function AddUserDialog({ onSuccess }: { onSuccess: (user: User) => void }) {
   const [open, setOpen] = useState(false)
@@ -204,6 +375,12 @@ export default function Users() {
     )
   }
 
+  const handleUserUpdated = (user: User) => {
+    queryClient.setQueryData<{ users: User[] }>(["users"], (old) =>
+      old ? { users: old.users.map((u) => (u.id === user.id ? user : u)) } : old
+    )
+  }
+
   const mutationError = updateRole.error?.message ?? deleteUser.error?.message
 
   if (isPending) {
@@ -298,38 +475,41 @@ export default function Users() {
                   {new Date(user.createdAt).toLocaleDateString()}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  {user.id !== currentUserId && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="text-muted-foreground hover:text-destructive"
-                          disabled={deleteUser.isPending}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete {user.name}?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This permanently removes their account and all active sessions. This
-                            cannot be undone.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => deleteUser.mutate(user.id)}
-                            className="bg-destructive text-white hover:bg-destructive/90"
+                  <div className="flex items-center justify-end gap-1">
+                    <EditUserDialog user={user} onSuccess={handleUserUpdated} />
+                    {user.id !== currentUserId && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="text-muted-foreground hover:text-destructive"
+                            disabled={deleteUser.isPending}
                           >
-                            Delete
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete {user.name}?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This permanently removes their account and all active sessions. This
+                              cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => deleteUser.mutate(user.id)}
+                              className="bg-destructive text-white hover:bg-destructive/90"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
