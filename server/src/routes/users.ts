@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { requireRole } from '../middleware/auth';
 import { prisma } from '../lib/prisma';
+import { auth } from '../lib/auth';
 
 const router = Router();
 
@@ -38,7 +38,8 @@ router.post('/', ...requireRole('admin'), async (req, res) => {
   }
 
   const userId = randomUUID();
-  const hashedPassword = await bcrypt.hash(password, 10);
+  const { password: passwordUtils } = await auth.$context;
+  const hashedPassword = await passwordUtils.hash(password);
 
   await prisma.$transaction([
     prisma.user.create({
@@ -110,7 +111,8 @@ router.patch('/:id', ...requireRole('admin'), async (req, res) => {
   });
 
   if (password) {
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const { password: passwordUtils } = await auth.$context;
+    const hashedPassword = await passwordUtils.hash(password);
     await prisma.account.updateMany({
       where: { userId: id, providerId: 'credential' },
       data: { password: hashedPassword, updatedAt: new Date() },

@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { Pencil, Trash2, UserPlus } from "lucide-react"
 import { authClient } from "@/lib/auth-client"
-import { usersApi, type User, type CreateUserInput, type UpdateUserInput } from "@/lib/api"
+import { usersApi, type User, type UpdateUserInput } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -35,308 +35,195 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 
-const createUserSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  email: z.string().email("Enter a valid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
-  role: z.enum(["admin", "agent"]),
-})
+type UserFormValues = {
+  name: string
+  email: string
+  password: string
+  role: "admin" | "agent"
+}
 
-const editUserSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  email: z.string().email("Enter a valid email address"),
-  password: z.string().refine(
-    (val) => val === "" || val.length >= 8,
-    { message: "Password must be at least 8 characters" }
-  ),
-  role: z.enum(["admin", "agent"]),
-})
+type DialogState =
+  | { open: false }
+  | { open: true; mode: "add" }
+  | { open: true; mode: "edit"; user: User }
 
-type FormValues = z.infer<typeof createUserSchema>
-type EditFormValues = z.infer<typeof editUserSchema>
-
-function EditUserDialog({
+function UserForm({
+  mode,
   user,
   onSuccess,
+  onClose,
 }: {
-  user: User
+  mode: "add" | "edit"
+  user?: User
   onSuccess: (user: User) => void
+  onClose: () => void
 }) {
-  const [open, setOpen] = useState(false)
+  const schema = z.object({
+    name: z.string().min(1, "Name is required"),
+    email: z.string().email("Enter a valid email address"),
+    password:
+      mode === "add"
+        ? z.string().min(8, "Password must be at least 8 characters")
+        : z.string().refine((v) => v === "" || v.length >= 8, {
+            message: "Password must be at least 8 characters",
+          }),
+    role: z.enum(["admin", "agent"]),
+  })
 
   const {
     register,
     handleSubmit,
     setValue,
     watch,
-    reset,
     formState: { errors, isSubmitting },
-  } = useForm<EditFormValues>({
-    resolver: zodResolver(editUserSchema),
+  } = useForm<UserFormValues>({
+    resolver: zodResolver(schema),
     defaultValues: {
-      name: user.name,
-      email: user.email,
-      role: user.role as "admin" | "agent",
+      name: user?.name ?? "",
+      email: user?.email ?? "",
+      role: (user?.role as "admin" | "agent") ?? "agent",
       password: "",
     },
   })
 
-  const editUser = useMutation({
-    mutationFn: (values: EditFormValues) => {
+  const mutation = useMutation({
+    mutationFn: (values: UserFormValues) => {
+      if (mode === "add") {
+        return usersApi.create({
+          name: values.name,
+          email: values.email,
+          password: values.password,
+          role: values.role,
+        })
+      }
       const payload: UpdateUserInput = {
         name: values.name,
         email: values.email,
         role: values.role,
       }
       if (values.password) payload.password = values.password
-      return usersApi.update(user.id, payload)
+      return usersApi.update(user!.id, payload)
     },
-    onSuccess: ({ user: updated }) => {
-      onSuccess(updated)
-      setOpen(false)
-    },
+    onSuccess: ({ user: saved }) => onSuccess(saved),
   })
 
-  const handleOpenChange = (v: boolean) => {
-    setOpen(v)
-    if (v) {
-      reset({
-        name: user.name,
-        email: user.email,
-        role: user.role as "admin" | "agent",
-        password: "",
-      })
-    }
-  }
-
   return (
-    <>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="text-muted-foreground hover:text-foreground"
-        onClick={() => handleOpenChange(true)}
-      >
-        <Pencil className="size-4" />
-      </Button>
+    <form onSubmit={handleSubmit((v) => mutation.mutate(v))} className="flex flex-col gap-4 py-2">
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="u-name" className="text-sm font-medium">Name</label>
+        <Input
+          id="u-name"
+          placeholder="Jane Smith"
+          aria-invalid={!!errors.name}
+          {...register("name")}
+        />
+        {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+      </div>
 
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit user</DialogTitle>
-          </DialogHeader>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="u-email" className="text-sm font-medium">Email</label>
+        <Input
+          id="u-email"
+          type="email"
+          placeholder="jane@example.com"
+          autoComplete="off"
+          aria-invalid={!!errors.email}
+          {...register("email")}
+        />
+        {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+      </div>
 
-          <form onSubmit={handleSubmit((v) => editUser.mutate(v))} className="flex flex-col gap-4 py-2">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-name" className="text-sm font-medium">Name</label>
-              <Input
-                id="edit-name"
-                placeholder="Jane Smith"
-                aria-invalid={!!errors.name}
-                {...register("name")}
-              />
-              {errors.name && (
-                <p className="text-xs text-destructive">{errors.name.message}</p>
-              )}
-            </div>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="u-password" className="text-sm font-medium">
+          {mode === "edit" ? (
+            <>
+              New password
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                (leave blank to keep current)
+              </span>
+            </>
+          ) : (
+            "Password"
+          )}
+        </label>
+        <Input
+          id="u-password"
+          type="password"
+          placeholder="Min. 8 characters"
+          autoComplete="new-password"
+          aria-invalid={!!errors.password}
+          {...register("password")}
+        />
+        {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+      </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-email" className="text-sm font-medium">Email</label>
-              <Input
-                id="edit-email"
-                type="email"
-                placeholder="jane@example.com"
-                autoComplete="off"
-                aria-invalid={!!errors.email}
-                {...register("email")}
-              />
-              {errors.email && (
-                <p className="text-xs text-destructive">{errors.email.message}</p>
-              )}
-            </div>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="u-role" className="text-sm font-medium">Role</label>
+        <Select
+          value={watch("role")}
+          onValueChange={(v) => setValue("role", v as "admin" | "agent", { shouldValidate: true })}
+        >
+          <SelectTrigger id="u-role" aria-invalid={!!errors.role}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="agent">Agent</SelectItem>
+            <SelectItem value="admin">Admin</SelectItem>
+          </SelectContent>
+        </Select>
+        {errors.role && <p className="text-xs text-destructive">{errors.role.message}</p>}
+      </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-password" className="text-sm font-medium">
-                New password
-                <span className="ml-1 text-xs font-normal text-muted-foreground">(leave blank to keep current)</span>
-              </label>
-              <Input
-                id="edit-password"
-                type="password"
-                placeholder="Min. 8 characters"
-                autoComplete="new-password"
-                aria-invalid={!!errors.password}
-                {...register("password")}
-              />
-              {errors.password && (
-                <p className="text-xs text-destructive">{errors.password.message}</p>
-              )}
-            </div>
+      {mutation.error && (
+        <p className="text-sm text-destructive">{mutation.error.message}</p>
+      )}
 
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-role" className="text-sm font-medium">Role</label>
-              <Select
-                value={watch("role")}
-                onValueChange={(v) => setValue("role", v as "admin" | "agent", { shouldValidate: true })}
-              >
-                <SelectTrigger id="edit-role" aria-invalid={!!errors.role}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="agent">Agent</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                </SelectContent>
-              </Select>
-              {errors.role && (
-                <p className="text-xs text-destructive">{errors.role.message}</p>
-              )}
-            </div>
-
-            {editUser.error && (
-              <p className="text-sm text-destructive">{editUser.error.message}</p>
-            )}
-
-            <DialogFooter className="pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Saving…" : "Save changes"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
+      <DialogFooter className="pt-2">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting
+            ? mode === "add"
+              ? "Creating…"
+              : "Saving…"
+            : mode === "add"
+              ? "Create user"
+              : "Save changes"}
+        </Button>
+      </DialogFooter>
+    </form>
   )
 }
 
-function AddUserDialog({ onSuccess }: { onSuccess: (user: User) => void }) {
-  const [open, setOpen] = useState(false)
-
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    watch,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
-    resolver: zodResolver(createUserSchema),
-    defaultValues: { role: "agent" },
-  })
-
-  const createUser = useMutation({
-    mutationFn: (data: CreateUserInput) => usersApi.create(data),
-    onSuccess: ({ user }) => {
-      onSuccess(user)
-      setOpen(false)
-      reset()
-    },
-  })
-
-  const onSubmit = (values: FormValues) => createUser.mutate(values)
-
+function UserDialog({
+  state,
+  onClose,
+  onSuccess,
+}: {
+  state: DialogState
+  onClose: () => void
+  onSuccess: (user: User) => void
+}) {
   return (
-    <>
-      <Button size="sm" onClick={() => setOpen(true)}>
-        <UserPlus className="size-4" />
-        Add user
-      </Button>
-
-      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add user</DialogTitle>
-          </DialogHeader>
-
-          <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4 py-2">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="name" className="text-sm font-medium">Name</label>
-              <Input
-                id="name"
-                placeholder="Jane Smith"
-                aria-invalid={!!errors.name}
-                {...register("name")}
-              />
-              {errors.name && (
-                <p className="text-xs text-destructive">{errors.name.message}</p>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="email" className="text-sm font-medium">Email</label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="jane@example.com"
-                autoComplete="off"
-                aria-invalid={!!errors.email}
-                {...register("email")}
-              />
-              {errors.email && (
-                <p className="text-xs text-destructive">{errors.email.message}</p>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="password" className="text-sm font-medium">Password</label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Min. 8 characters"
-                autoComplete="new-password"
-                aria-invalid={!!errors.password}
-                {...register("password")}
-              />
-              {errors.password && (
-                <p className="text-xs text-destructive">{errors.password.message}</p>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="role" className="text-sm font-medium">Role</label>
-              <Select
-                value={watch("role")}
-                onValueChange={(v) => setValue("role", v as "admin" | "agent", { shouldValidate: true })}
-              >
-                <SelectTrigger id="role" aria-invalid={!!errors.role}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="agent">Agent</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                </SelectContent>
-              </Select>
-              {errors.role && (
-                <p className="text-xs text-destructive">{errors.role.message}</p>
-              )}
-            </div>
-
-            {createUser.error && (
-              <p className="text-sm text-destructive">{createUser.error.message}</p>
-            )}
-
-            <DialogFooter className="pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => { setOpen(false); reset() }}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Creating…" : "Create user"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
+    <Dialog open={state.open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {state.open && state.mode === "edit" ? "Edit user" : "Add user"}
+          </DialogTitle>
+        </DialogHeader>
+        {state.open && (
+          <UserForm
+            key={state.mode === "edit" ? state.user.id : "new"}
+            mode={state.mode}
+            user={state.mode === "edit" ? state.user : undefined}
+            onSuccess={onSuccess}
+            onClose={onClose}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -344,6 +231,7 @@ export default function Users() {
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
   const queryClient = useQueryClient()
+  const [dialog, setDialog] = useState<DialogState>({ open: false })
 
   const { data, isPending, error } = useQuery({
     queryKey: ["users"],
@@ -369,16 +257,19 @@ export default function Users() {
     },
   })
 
-  const handleUserCreated = (user: User) => {
-    queryClient.setQueryData<{ users: User[] }>(["users"], (old) =>
-      old ? { users: [user, ...old.users] } : { users: [user] }
-    )
-  }
+  const closeDialog = () => setDialog({ open: false })
 
-  const handleUserUpdated = (user: User) => {
-    queryClient.setQueryData<{ users: User[] }>(["users"], (old) =>
-      old ? { users: old.users.map((u) => (u.id === user.id ? user : u)) } : old
-    )
+  const handleUserSuccess = (user: User) => {
+    queryClient.setQueryData<{ users: User[] }>(["users"], (old) => {
+      if (!old) return { users: [user] }
+      const exists = old.users.some((u) => u.id === user.id)
+      return {
+        users: exists
+          ? old.users.map((u) => (u.id === user.id ? user : u))
+          : [user, ...old.users],
+      }
+    })
+    closeDialog()
   }
 
   const mutationError = updateRole.error?.message ?? deleteUser.error?.message
@@ -417,7 +308,10 @@ export default function Users() {
           <h1 className="text-2xl font-semibold">Users</h1>
           <p className="mt-1 text-sm text-muted-foreground">{userList.length} total</p>
         </div>
-        <AddUserDialog onSuccess={handleUserCreated} />
+        <Button size="sm" onClick={() => setDialog({ open: true, mode: "add" })}>
+          <UserPlus className="size-4" />
+          Add user
+        </Button>
       </div>
 
       {mutationError && (
@@ -476,7 +370,14 @@ export default function Users() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-1">
-                    <EditUserDialog user={user} onSuccess={handleUserUpdated} />
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setDialog({ open: true, mode: "edit", user })}
+                    >
+                      <Pencil className="size-4" />
+                    </Button>
                     {user.id !== currentUserId && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -520,6 +421,8 @@ export default function Users() {
           <p className="px-4 py-10 text-center text-muted-foreground">No users found.</p>
         )}
       </div>
+
+      <UserDialog state={dialog} onClose={closeDialog} onSuccess={handleUserSuccess} />
     </div>
   )
 }

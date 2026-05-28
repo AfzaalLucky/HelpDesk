@@ -56,7 +56,7 @@ export default function Login() {
               <Input
                 id="email"
                 type="email"
-                placeholder="you@example.com"
+                placeholder="admin@helpdesk.dev"
                 autoComplete="email"
                 aria-invalid={!!errors.email}
                 {...register("email")}
