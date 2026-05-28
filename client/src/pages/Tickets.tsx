@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Plus } from "lucide-react"
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { authClient } from "@/lib/auth-client"
 import { ticketsApi, type Ticket, type CreateTicketInput } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
@@ -256,16 +256,22 @@ export default function Tickets() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [priorityFilter, setPriorityFilter] = useState("all")
   const [search, setSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 10
 
   const { data, isPending, error } = useQuery({
-    queryKey: ["tickets", { status: statusFilter, priority: priorityFilter, search }],
+    queryKey: ["tickets", { status: statusFilter, priority: priorityFilter, search, page }],
     queryFn: () =>
       ticketsApi.list({
         status: statusFilter !== "all" ? statusFilter : undefined,
         priority: priorityFilter !== "all" ? priorityFilter : undefined,
         search: search || undefined,
+        page,
+        pageSize: PAGE_SIZE,
       }),
   })
+
+  const resetPage = () => setPage(1)
 
   const handleTicketCreated = (ticket: Ticket) => {
     queryClient.invalidateQueries({ queryKey: ["tickets"] })
@@ -273,6 +279,10 @@ export default function Tickets() {
   }
 
   const tickets = data?.tickets ?? []
+  const total = data?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const to = Math.min(page * PAGE_SIZE, total)
 
   return (
     <div className="p-8">
@@ -280,7 +290,7 @@ export default function Tickets() {
         <div>
           <h1 className="text-2xl font-semibold">Tickets</h1>
           {!isPending && (
-            <p className="mt-1 text-sm text-muted-foreground">{tickets.length} tickets</p>
+            <p className="mt-1 text-sm text-muted-foreground">{total} tickets</p>
           )}
         </div>
         {role === "admin" && <NewTicketDialog onSuccess={handleTicketCreated} />}
@@ -290,10 +300,10 @@ export default function Tickets() {
         <Input
           placeholder="Search subject or email…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); resetPage() }}
           className="h-8 w-56 text-sm"
         />
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); resetPage() }}>
           <SelectTrigger className="h-8 w-36 text-sm">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
@@ -305,7 +315,7 @@ export default function Tickets() {
             <SelectItem value="closed">Closed</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+        <Select value={priorityFilter} onValueChange={(v) => { setPriorityFilter(v); resetPage() }}>
           <SelectTrigger className="h-8 w-36 text-sm">
             <SelectValue placeholder="All priorities" />
           </SelectTrigger>
@@ -322,7 +332,7 @@ export default function Tickets() {
             variant="ghost"
             size="sm"
             className="h-8 text-xs text-muted-foreground"
-            onClick={() => { setStatusFilter("all"); setPriorityFilter("all"); setSearch("") }}
+            onClick={() => { setStatusFilter("all"); setPriorityFilter("all"); setSearch(""); resetPage() }}
           >
             Clear filters
           </Button>
@@ -400,6 +410,36 @@ export default function Tickets() {
           </table>
         )}
       </div>
+
+      {/* Pagination */}
+      {!isPending && total > 0 && (
+        <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            Showing {from}–{to} of {total} tickets
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => setPage((p) => p - 1)}
+              disabled={page <= 1}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="min-w-20 text-center text-xs">
+              Page {page} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page >= totalPages}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

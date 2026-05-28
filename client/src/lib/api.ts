@@ -76,9 +76,16 @@ export type CreateTicketInput = {
   priority?: Ticket["priority"]
 }
 
+export type TicketListResponse = {
+  tickets: Ticket[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export const ticketsApi = {
-  list: (params?: { status?: string; priority?: string; assignedToId?: string; search?: string }) =>
-    apiClient.get<{ tickets: Ticket[] }>("/api/tickets", { params }).then((r) => r.data),
+  list: (params?: { status?: string; priority?: string; assignedToId?: string; search?: string; page?: number; pageSize?: number }) =>
+    apiClient.get<TicketListResponse>("/api/tickets", { params }).then((r) => r.data),
   get: (id: string) =>
     apiClient.get<{ ticket: TicketDetail }>(`/api/tickets/${id}`).then((r) => r.data),
   update: (id: string, data: UpdateTicketInput) =>

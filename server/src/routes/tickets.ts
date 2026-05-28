@@ -6,33 +6,43 @@ import { prisma } from '../lib/prisma';
 const router = Router();
 
 router.get('/', requireAuth, async (req, res) => {
-  const { status, priority, assignedToId, search } = req.query as Record<string, string>;
+  const { status, priority, assignedToId, search, page, pageSize } = req.query as Record<string, string>;
 
-  const tickets = await prisma.ticket.findMany({
-    where: {
-      ...(status && { status }),
-      ...(priority && { priority }),
-      ...(assignedToId === 'me'
-        ? { assignedToId: (req.user as { id: string }).id }
-        : assignedToId
-          ? { assignedToId }
-          : {}),
-      ...(search && {
-        OR: [
-          { subject: { contains: search, mode: 'insensitive' } },
-          { fromEmail: { contains: search, mode: 'insensitive' } },
-          { fromName: { contains: search, mode: 'insensitive' } },
-        ],
-      }),
-    },
-    include: {
-      assignedTo: { select: { id: true, name: true } },
-      _count: { select: { messages: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const pageSizeNum = Math.max(1, Math.min(100, parseInt(pageSize) || 10));
 
-  res.json({ tickets });
+  const where = {
+    ...(status && { status }),
+    ...(priority && { priority }),
+    ...(assignedToId === 'me'
+      ? { assignedToId: (req.user as { id: string }).id }
+      : assignedToId
+        ? { assignedToId }
+        : {}),
+    ...(search && {
+      OR: [
+        { subject: { contains: search, mode: 'insensitive' as const } },
+        { fromEmail: { contains: search, mode: 'insensitive' as const } },
+        { fromName: { contains: search, mode: 'insensitive' as const } },
+      ],
+    }),
+  };
+
+  const [tickets, total] = await prisma.$transaction([
+    prisma.ticket.findMany({
+      where,
+      include: {
+        assignedTo: { select: { id: true, name: true } },
+        _count: { select: { messages: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: (pageNum - 1) * pageSizeNum,
+      take: pageSizeNum,
+    }),
+    prisma.ticket.count({ where }),
+  ]);
+
+  res.json({ tickets, total, page: pageNum, pageSize: pageSizeNum });
 });
 
 router.get('/:id', requireAuth, async (req, res) => {
