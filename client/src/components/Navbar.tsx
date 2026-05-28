@@ -20,6 +20,9 @@ export default function Navbar({ userName, role }: Props) {
     <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-background px-6">
       <div className="flex items-center gap-6">
         <span className="font-semibold text-foreground">HelpDesk</span>
+        <Link to="/tickets" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+          Tickets
+        </Link>
         {role === "admin" && (
           <Link to="/users" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
             Users

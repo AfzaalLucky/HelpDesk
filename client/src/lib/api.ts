@@ -33,6 +33,60 @@ export type UpdateUserInput = {
   password?: string
 }
 
+export type Ticket = {
+  id: string
+  subject: string
+  fromEmail: string
+  fromName: string
+  status: "open" | "in_progress" | "resolved" | "closed"
+  priority: "low" | "medium" | "high" | "urgent"
+  assignedToId: string | null
+  assignedTo: { id: string; name: string } | null
+  createdAt: string
+  updatedAt: string
+  _count?: { messages: number }
+}
+
+export type Message = {
+  id: string
+  ticketId: string
+  body: string
+  direction: "inbound" | "outbound"
+  fromEmail: string | null
+  fromName: string | null
+  createdAt: string
+}
+
+export type TicketDetail = Omit<Ticket, "assignedTo" | "_count"> & {
+  assignedTo: { id: string; name: string; email: string } | null
+  messages: Message[]
+}
+
+export type UpdateTicketInput = {
+  status?: Ticket["status"]
+  priority?: Ticket["priority"]
+  assignedToId?: string | null
+}
+
+export type CreateTicketInput = {
+  subject: string
+  fromEmail: string
+  fromName: string
+  body: string
+  priority?: Ticket["priority"]
+}
+
+export const ticketsApi = {
+  list: (params?: { status?: string; priority?: string; assignedToId?: string; search?: string }) =>
+    apiClient.get<{ tickets: Ticket[] }>("/api/tickets", { params }).then((r) => r.data),
+  get: (id: string) =>
+    apiClient.get<{ ticket: TicketDetail }>(`/api/tickets/${id}`).then((r) => r.data),
+  update: (id: string, data: UpdateTicketInput) =>
+    apiClient.patch<{ ticket: TicketDetail }>(`/api/tickets/${id}`, data).then((r) => r.data),
+  create: (data: CreateTicketInput) =>
+    apiClient.post<{ ticket: Ticket }>("/api/tickets", data).then((r) => r.data),
+}
+
 export const usersApi = {
   list: () => apiClient.get<{ users: User[] }>("/api/users").then((r) => r.data),
   create: (data: CreateUserInput) =>

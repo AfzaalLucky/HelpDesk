@@ -18,10 +18,41 @@ model User {
   updatedAt     DateTime
   role          String    @default("agent")
 
-  sessions Session[]
-  accounts Account[]
+  sessions        Session[]
+  accounts        Account[]
+  assignedTickets Ticket[]  @relation("TicketAssignee")
 
   @@map("user")
+}
+
+model Ticket {
+  id           String    @id @default(cuid())
+  subject      String
+  fromEmail    String
+  fromName     String
+  status       String    @default("open")
+  priority     String    @default("medium")
+  assignedToId String?
+  assignedTo   User?     @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  messages     Message[]
+
+  @@map("ticket")
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  ticketId       String
+  ticket         Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  body           String   @db.Text
+  direction      String
+  fromEmail      String?
+  fromName       String?
+  emailMessageId String?
+  createdAt      DateTime @default(now())
+
+  @@map("message")
 }
 
 model Session {

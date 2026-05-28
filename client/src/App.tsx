@@ -4,6 +4,8 @@ import Navbar from "@/components/Navbar"
 import Login from "@/pages/Login"
 import Home from "@/pages/Home"
 import Users from "@/pages/Users"
+import Tickets from "@/pages/Tickets"
+import TicketDetail from "@/pages/TicketDetail"
 
 function ProtectedLayout() {
   const { data: session, isPending } = authClient.useSession()
@@ -36,6 +38,8 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<Home />} />
+        <Route path="/tickets" element={<Tickets />} />
+        <Route path="/tickets/:id" element={<TicketDetail />} />
         <Route element={<AdminLayout />}>
           <Route path="/users" element={<Users />} />
         </Route>
